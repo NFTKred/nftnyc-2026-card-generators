@@ -59,7 +59,7 @@ PHOTO_Y = 0
 PHOTO_W = CANVAS_W - SIDEBAR_W
 PHOTO_H = CANVAS_H - BOTTOM_BAR_H
 
-LOGO_PATH = "/Users/lucasjohnson/Documents/NYC Logos/NFT.NYC.logo.whitepng.png"
+LOGO_PATH = str(Path(__file__).parent / "assets" / "nftnyc_logo_white.png")
 
 # Speaker Ids to permanently exclude from rendering (test rows, withdrawn speakers, etc.).
 EXCLUDED_SPEAKER_IDS = {
@@ -694,7 +694,7 @@ def _sample_top_edge_color(img: Image.Image) -> Tuple[int, int, int]:
 
 
 def render_card(photo_path: Path, name: str, track: str, out_path: Path,
-                y_offset: int = 0) -> None:
+                y_offset: int = 0, image_format: str = "PNG") -> None:
     photo = Image.open(photo_path)
     # Apply any EXIF orientation tag (some Sessionize uploads are rotated).
     photo = ImageOps.exif_transpose(photo)
@@ -748,7 +748,11 @@ def render_card(photo_path: Path, name: str, track: str, out_path: Path,
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.convert("RGB").save(out_path, "PNG", optimize=True)
+    fmt = image_format.upper()
+    if fmt in ("JPG", "JPEG"):
+        canvas.convert("RGB").save(out_path, "JPEG", quality=92, optimize=True, progressive=True)
+    else:
+        canvas.convert("RGB").save(out_path, "PNG", optimize=True)
 
 
 def lookup_photo_override(speaker_id: str) -> Optional[Path]:

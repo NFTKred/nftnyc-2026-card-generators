@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+
+# Local data + caches (not source of truth)
+*.xlsx
+*.xlsm
+photo-cache/
