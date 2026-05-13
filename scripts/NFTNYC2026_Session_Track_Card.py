@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import csv
+import html
 import json
 import sys
 from pathlib import Path
@@ -88,6 +89,106 @@ def load_rows(path: Path) -> list[dict]:
     if suffix == ".csv":
         return _read_csv_rows(path)
     raise SystemExit(f"Unsupported input format: {suffix} (use .xlsx or .csv)")
+
+
+INDEX_HTML_TEMPLATE = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NFT.NYC 2026 - Speaker Track Cards ({count} sessions)</title>
+<style>
+  html,body{{margin:0;padding:0;background:#0a0a0a;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,sans-serif}}
+  header{{padding:36px 40px 8px;position:sticky;top:0;background:linear-gradient(#0a0a0a,#0a0a0acc 70%,transparent);z-index:10;backdrop-filter:blur(6px)}}
+  header h1{{font-weight:300;letter-spacing:-.01em;margin:0 0 6px;font-size:30px}}
+  header p{{margin:0 0 14px;opacity:.6;font-size:13px}}
+  .controls{{display:flex;gap:10px;flex-wrap:wrap;align-items:center}}
+  .controls input[type=search]{{flex:0 0 280px;padding:8px 12px;border-radius:10px;border:1px solid #2a2a2a;background:#141414;color:#eee;font:inherit}}
+  .controls select{{padding:8px 12px;border-radius:10px;border:1px solid #2a2a2a;background:#141414;color:#eee;font:inherit}}
+  .controls .count{{margin-left:auto;opacity:.55;font-size:13px}}
+  .grid{{display:grid;gap:18px;padding:18px 40px 60px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
+  .card{{background:#141414;border-radius:14px;overflow:hidden;text-decoration:none;color:#ddd;transition:transform .15s ease;display:flex;flex-direction:column}}
+  .card:hover{{transform:translateY(-2px)}}
+  .card img{{width:100%;display:block;aspect-ratio:1/1;object-fit:cover;background:#000}}
+  .meta{{padding:10px 12px;border-top:1px solid rgba(255,255,255,.06);font-size:12px;display:flex;flex-direction:column;gap:3px}}
+  .meta .name{{font-size:14px;color:#fff}}
+  .meta .track{{opacity:.65}}
+  .meta .sid{{opacity:.4;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}}
+  .hidden{{display:none !important}}
+</style>
+</head><body>
+<header>
+  <h1>NFT.NYC 2026 - Speaker Track Cards</h1>
+  <p>{count} sessions . 1080x1080 . click any card to open the full JPG (the same URL the voting feed embeds)</p>
+  <div class="controls">
+    <input id="q" type="search" placeholder="Filter by speaker, track, or session ID">
+    <select id="track">
+      <option value="">All tracks</option>
+      {track_options}
+    </select>
+    <span class="count" id="count"></span>
+  </div>
+</header>
+<div class="grid" id="grid">
+{cards}
+</div>
+<script>
+  const q = document.getElementById('q');
+  const tsel = document.getElementById('track');
+  const grid = document.getElementById('grid');
+  const cards = Array.from(grid.children);
+  const count = document.getElementById('count');
+  function apply() {{
+    const term = q.value.trim().toLowerCase();
+    const t = tsel.value;
+    let shown = 0;
+    for (const c of cards) {{
+      const hay = c.dataset.search;
+      const trk = c.dataset.track;
+      const ok = (!term || hay.includes(term)) && (!t || trk === t);
+      c.classList.toggle('hidden', !ok);
+      if (ok) shown++;
+    }}
+    count.textContent = shown + ' shown';
+  }}
+  q.addEventListener('input', apply);
+  tsel.addEventListener('change', apply);
+  apply();
+</script>
+</body></html>
+"""
+
+
+def write_index_html(path: Path, manifest: dict) -> None:
+    items = sorted(
+        manifest.items(),
+        key=lambda kv: (kv[1].get("track", ""), kv[1].get("speakerName", "").lower()),
+    )
+    tracks = sorted({v.get("track", "") for v in manifest.values() if v.get("track")})
+    track_options = "\n      ".join(
+        f'<option value="{html.escape(t)}">{html.escape(t)}</option>' for t in tracks
+    )
+    card_html_parts = []
+    for sid, info in items:
+        name = info.get("speakerName", "")
+        track = info.get("track", "")
+        filename = info["imageUrl"].rsplit("/", 1)[-1]
+        search_blob = " ".join([sid, name, track]).lower()
+        card_html_parts.append(
+            f'<a class="card" href="{html.escape(filename)}" target="_blank" '
+            f'data-search="{html.escape(search_blob)}" data-track="{html.escape(track)}">'
+            f'<img loading="lazy" src="{html.escape(filename)}" alt="{html.escape(name)}">'
+            f'<div class="meta">'
+            f'<span class="name">{html.escape(name)}</span>'
+            f'<span class="track">{html.escape(track)}</span>'
+            f'<span class="sid">{html.escape(sid)}</span>'
+            f'</div></a>'
+        )
+    page = INDEX_HTML_TEMPLATE.format(
+        count=len(items),
+        track_options=track_options,
+        cards="\n".join(card_html_parts),
+    )
+    path.write_text(page, encoding="utf-8")
 
 
 def main():
@@ -201,12 +302,16 @@ def main():
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")
 
+    index_path = out_dir / "index.html"
+    write_index_html(index_path, manifest)
+
     print(
         f"\nDone. {successes} rendered, {failures} failed, "
         f"{skipped_no_track} co-speaker rows skipped (no track), "
         f"{skipped_excluded} excluded, {skipped_no_photo} skipped (no photo)."
     )
     print(f"Manifest: {manifest_path}")
+    print(f"Index:    {index_path}")
     sys.exit(0 if failures == 0 else 2)
 
 
