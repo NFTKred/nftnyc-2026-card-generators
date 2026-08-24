@@ -243,6 +243,11 @@ def pick_column(row: dict, *aliases: str) -> Optional[str]:
 NAME_OVERRIDES = {
     # Speaker Id -> display name. Use for CSV data errors (e.g. Pseudonym typo'd).
     "8c30c323-743a-47d1-bfa3-9c40b83ae209": "YuZapata",  # CSV Pseudonym="He" is a typo
+    "9674ddfc-df52-4f2d-89de-2d253e913e23": "MR. DARIUS",  # stage name; R2 CSV Pseudonym empty (matches R1 card)
+    "094b2cf7-199e-42ec-95db-08e1b6f840ce": "GUARDIANZ REALM",  # speaker-requested rename 2026-07-07 (was META GUARDIANZ)
+    "26ef8cb3-f742-454f-94c8-1e56c9091365": "Mother Duck",   # R3: Lucas chose ScreenName over Kimberly Williams
+    "7374bed6-3da4-4c8e-8d44-a740c4741725": "Geoffvongore",  # R3: Lucas chose ScreenName over Geoff VonGore
+    "03dabdc9-d260-4fdf-9acf-c384189db908": "Raj Menon",     # R3: CSV Pseudonym is an Instagram URL
 }
 
 

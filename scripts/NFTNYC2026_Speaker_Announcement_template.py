@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-NFTNYC2026_Proof_of_Submission_template — locked design, 2026-05-07.
+NFTNYC2026_Speaker_Announcement_template — selected-speaker variant of the
+locked Proof of Submission design.
 
-Canonical batch renderer for the NFT.NYC 2026 "Proof of Submission" speaker cards.
-Design approved on 2026-05-07; do not change layout/typography/foil palette without
+Identical layout/typography/foil palette to NFTNYC2026_Proof_of_Submission_template
+(approved 2026-05-07); the only change is the rotated sidebar text, which reads
+"NFT.NYC 2026 SPEAKER" instead of "PROOF OF SUBMISSION 2026". Used for speakers who
+have been selected/accepted. Do not change layout/typography/foil palette without
 explicit sign-off.
 
 Design lock-in:
@@ -11,7 +14,7 @@ Design lock-in:
     Left strip     : 100px wide, full height, blue/purple metallic-foil gradient
                      (alternating periwinkle / lavender / indigo / pale lilac stops with
                      diagonal shine bands and fine grain to read as reflective foil)
-                     "PROOF OF SUBMISSION 2026" text rotated -90 deg, dark navy ink,
+                     "NFT.NYC 2026 SPEAKER" text rotated -90 deg, dark navy ink,
                      Monument Extended Black 30pt with 2px tracking
                      Starburst icon (12-point, dark navy) near bottom of strip
     Photo area     : 980 wide x 880 tall, starts at x=100, y=0
@@ -31,7 +34,7 @@ Required fonts:
     ~/Library/Fonts/SpaceGrotesk-Bold.ttf
 
 Usage:
-    python3 NFTNYC2026_Proof_of_Submission_template.py path/to/speakers.csv [--out DIR] [--limit N]
+    python3 NFTNYC2026_Speaker_Announcement_template.py path/to/speakers.csv [--out DIR] [--limit N]
 
 CSV column resolution and URL caching are identical to the speaker-card template.
 """
@@ -44,6 +47,7 @@ import os
 import random
 import re
 import sys
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
@@ -78,6 +82,64 @@ def lookup_photo_override(speaker_id: str):
         candidate = PHOTO_OVERRIDE_DIR / f"{speaker_id}{ext}"
         if candidate.exists():
             return candidate
+    return None
+
+
+# High-res originals downloaded from Sessionize (the public avatar URL only serves a
+# 400x400 thumbnail). Sessionize's bulk export names files like "Devin_NA.jpg" or
+# "Cameron_Bale.jpg" (FirstName_LastName, original case); an avatar-click download
+# uses "devin-na.jpg" (lowercased, hyphenated). We normalize both sides to an
+# alphanumeric-only lowercase key so either convention matches.
+ORIGINALS_DIR = Path(__file__).parent.parent / "incoming-originals"
+_ORIGINALS_INDEX: Optional[dict] = None
+
+
+def _canonical_key(s: str) -> str:
+    """Lowercased alphanumeric-only canonical form (drops _, -, /, ., spaces, accents)."""
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def sessionize_original_key(row: dict) -> str:
+    first = _canonical_key(pick_column(row, "FirstName", "first_name"))
+    last = _canonical_key(pick_column(row, "LastName", "last_name"))
+    return first + last
+
+
+def _build_originals_index(originals_dir: Path) -> dict:
+    """Scan the originals dir once and map canonical-name-key -> file path."""
+    index: dict = {}
+    if not originals_dir.exists():
+        return index
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+    for p in sorted(originals_dir.iterdir()):
+        if p.suffix.lower() not in exts:
+            continue
+        key = _canonical_key(p.stem)
+        if key and key not in index:
+            index[key] = p
+    return index
+
+
+def lookup_local_original(row: dict, originals_dir: Path):
+    global _ORIGINALS_INDEX
+    if _ORIGINALS_INDEX is None:
+        _ORIGINALS_INDEX = _build_originals_index(originals_dir)
+    key = sessionize_original_key(row)
+    if not key:
+        return None
+    hit = _ORIGINALS_INDEX.get(key)
+    if hit:
+        return hit
+    # Fallback: Sessionize sometimes romanizes non-ASCII names in the export
+    # filename (e.g. CSV FirstName "Moonlight - 月と涙 -" -> file "Moonlight_-_Yue_toLei_-_NA").
+    # Try matching by the FirstName's canonical key as a prefix, but only when
+    # exactly one indexed file matches — never guess on ambiguity.
+    first_key = _canonical_key(pick_column(row, "FirstName", "first_name"))
+    if len(first_key) >= 5:
+        candidates = [p for k, p in _ORIGINALS_INDEX.items() if k.startswith(first_key)]
+        if len(candidates) == 1:
+            return candidates[0]
     return None
 LOGO_TARGET_WIDTH = 180
 
@@ -166,11 +228,14 @@ def pick_column(row: dict, *aliases: str) -> Optional[str]:
 
 NAME_OVERRIDES = {
     "8c30c323-743a-47d1-bfa3-9c40b83ae209": "YuZapata",  # CSV Pseudonym="He" is a typo
+    "4243503f-36f5-4834-8b07-b7f64e9c5681": "Devin",     # prefer first name over ScreenName "devinteerfilms"
     "9674ddfc-df52-4f2d-89de-2d253e913e23": "MR. DARIUS",  # stage name; R2 CSV Pseudonym empty (matches R1 card)
     "094b2cf7-199e-42ec-95db-08e1b6f840ce": "GUARDIANZ REALM",  # speaker-requested rename 2026-07-07 (was META GUARDIANZ)
     "26ef8cb3-f742-454f-94c8-1e56c9091365": "Mother Duck",   # R3: Lucas chose ScreenName over Kimberly Williams
     "7374bed6-3da4-4c8e-8d44-a740c4741725": "Geoffvongore",  # R3: Lucas chose ScreenName over Geoff VonGore
     "03dabdc9-d260-4fdf-9acf-c384189db908": "Raj Menon",     # R3: CSV Pseudonym is an Instagram URL
+    "b0b4972b-15fe-4ba1-b0b1-2787e1ea8988": "SirenAi",       # Lucas 2026-08-23: drop "La Sirena /" from Pseudonym
+    "0e828dde-6d96-4807-892b-8a5681c6e8b6": "cainENABLE",    # Lucas 2026-08-23: ScreenName over Pseudonym "cain"
 }
 
 
@@ -184,11 +249,11 @@ def _clean_name_part(s):
 
 
 def resolve_name(row: dict) -> str:
-    """NFT.NYC display-name rule: Pseudonym > FirstName + LastName.
+    """NFT.NYC display-name rule: Pseudonym > ScreenName > FirstName + LastName.
 
-    Brand rule: every card uses a pseudonym. CSV `Pseudonym` wins; if blank,
-    fall back to FirstName + LastName (columns AP and AQ). 'N/A' values in
-    either name part are treated as empty.
+    Brand rule: cards prefer a stage name. Use the CSV `Pseudonym` if filled;
+    otherwise the `ScreenName` (handle); otherwise fall back to FirstName + LastName.
+    'N/A' values in any part are treated as empty.
     """
     spid = pick_column(row, "Speaker Id", "speaker_id")
     if spid and spid in NAME_OVERRIDES:
@@ -196,6 +261,9 @@ def resolve_name(row: dict) -> str:
     pseudo = pick_column(row, "Pseudonym")
     if pseudo:
         return pseudo
+    screen = _clean_name_part(pick_column(row, "ScreenName", "screen_name", "Screen Name"))
+    if screen:
+        return screen.lstrip("@")        # strip leading @ for display
     first = _clean_name_part(pick_column(row, "FirstName", "first_name"))
     last = _clean_name_part(pick_column(row, "LastName", "last_name"))
     combined = (first + " " + last).strip()
@@ -279,7 +347,8 @@ def trim_uniform_borders(img: Image.Image,
 
 def detect_empty_top_rows(photo: Image.Image, sensitivity: int = 10,
                           max_inspect_frac: float = 0.25) -> int:
-    """Number of empty/low-variance rows at the top of the source (head detection)."""
+    """Fallback head-position heuristic when face detection fails.
+    Number of empty/low-variance rows at the top of the source."""
     g = photo.convert("L")
     w, h = g.size
     px = g.load()
@@ -295,7 +364,57 @@ def detect_empty_top_rows(photo: Image.Image, sensitivity: int = 10,
     return max_check
 
 
+_FACE_CASCADE = None
+
+
+def _face_cascade():
+    """Lazy-load OpenCV's Haar cascade. Returns None if cv2 isn't available."""
+    global _FACE_CASCADE
+    if _FACE_CASCADE is not None:
+        return _FACE_CASCADE
+    try:
+        import cv2  # type: ignore
+        path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        _FACE_CASCADE = cv2.CascadeClassifier(path)
+        return _FACE_CASCADE
+    except Exception:
+        return None
+
+
+def detect_face_box(photo: Image.Image):
+    """Detect the largest frontal face in `photo`. Returns (x, y, w, h) in source
+    pixels, or None if no face found / OpenCV unavailable."""
+    cascade = _face_cascade()
+    if cascade is None or cascade.empty():
+        return None
+    try:
+        import cv2  # type: ignore
+        import numpy as np
+        rgb = photo.convert("RGB")
+        arr = np.array(rgb)
+        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+        gray = cv2.equalizeHist(gray)
+        faces = cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=6, minSize=(80, 80)
+        )
+        if len(faces) == 0:
+            return None
+        # Speaker photos: the subject's face is almost always in the upper half of
+        # the frame; false positives often appear below (bike seats, shadows, logos,
+        # reflections). Among faces within 70% of the largest area, pick the topmost.
+        max_area = max(f[2] * f[3] for f in faces)
+        candidates = [f for f in faces if (f[2] * f[3]) >= max_area * 0.7]
+        x, y, w, h = min(candidates, key=lambda f: f[1])
+        return int(x), int(y), int(w), int(h)
+    except Exception:
+        return None
+
+
 def cover_crop(photo: Image.Image, w: int, h: int) -> Image.Image:
+    """Resize-and-crop to fill (w, h). Uses the empty-top-rows heuristic to add
+    headroom above the subject. Face detection is reserved for the QA report
+    after rendering — it produced too many regressions when used to drive the
+    crop directly (false positives on bike seats / reflections / shadows)."""
     src_w, src_h = photo.size
     scale = max(w / src_w, h / src_h)
     new_w, new_h = int(src_w * scale + 0.5), int(src_h * scale + 0.5)
@@ -314,6 +433,33 @@ def cover_crop(photo: Image.Image, w: int, h: int) -> Image.Image:
     if top + h > new_h:
         top = new_h - h
     return scaled.crop((left, top, left + w, top + h))
+
+
+def qa_face_in_rendered_card(card_path: Path, photo_box: tuple, name: str) -> list[str]:
+    """Detect the face in the rendered card and report any framing issues.
+    Returns a list of human-readable warnings (empty list = card looks good)."""
+    rendered = Image.open(card_path).convert("RGB")
+    px_x, px_y, px_w, px_h = photo_box
+    photo_region = rendered.crop((px_x, px_y, px_x + px_w, px_y + px_h))
+    face = detect_face_box(photo_region)
+    if face is None:
+        return [f"  WARN {name}: no face detected in rendered card"]
+    fx, fy, fw, fh = face
+    warns: list[str] = []
+    # Margins relative to the photo area of the card
+    margin_top = fy / px_h
+    margin_left = fx / px_w
+    margin_right = (px_w - (fx + fw)) / px_w
+    margin_bottom = (px_h - (fy + fh)) / px_h
+    if margin_top < 0.04:
+        warns.append(f"  WARN {name}: top of face <4% from photo edge (forehead may be clipped)")
+    if margin_bottom < 0.04:
+        warns.append(f"  WARN {name}: chin <4% from photo edge (chin may be clipped)")
+    if margin_left < 0.02:
+        warns.append(f"  WARN {name}: face touches left edge")
+    if margin_right < 0.02:
+        warns.append(f"  WARN {name}: face touches right edge")
+    return warns
 
 
 def interp_rgb(c1, c2, t):
@@ -391,7 +537,7 @@ def build_sidebar(width: int, height: int) -> Image.Image:
     lit = ImageChops.screen(lit, shine_rgb)
 
     # 3) Subtle grain for the metallic micro-texture
-    grain = _grain(width, height, strength=6)
+    grain = _grain(width, height, strength=2)
     grain_rgb = Image.merge("RGB", (grain, grain, grain))
     lit = ImageChops.overlay(lit, grain_rgb)
 
@@ -399,37 +545,58 @@ def build_sidebar(width: int, height: int) -> Image.Image:
 
 
 def draw_sidebar_text(canvas: Image.Image):
-    """Draw 'PROOF OF SUBMISSION' rotated -90deg on the sidebar (reads bottom-up)."""
-    text = "PROOF OF SUBMISSION 2026"
-    font_size = 30
-    tracking = 2  # Monument Extended is already wide; minimal extra tracking
+    """Draw 'NFT.NYC 2026 SPEAKER' rotated -90deg on the sidebar (reads bottom-up).
 
-    font = load_font(font_size, weight="monument-black")
-    # Render each letter individually so we can apply tracking
-    glyph_widths = []
-    glyph_heights = []
-    for ch in text:
-        bbox = font.getbbox(ch)
-        glyph_widths.append(bbox[2] - bbox[0])
-        glyph_heights.append(bbox[3] - bbox[1])
-    total_w = sum(glyph_widths) + tracking * (len(text) - 1)
-    line_h = max(glyph_heights) + 8
+    Auto-sized to fill the foil strip: the largest Monument Black size whose rotated
+    width still fits inside the sidebar (with margin) and whose rotated height clears
+    the starburst at the bottom. White ink for contrast against the foil.
+    """
+    text = "NFT.NYC 2026 SPEAKER"
+    tracking = 3          # Monument Extended is already wide; a little extra spacing
+    fill = (0, 0, 0, 255)   # black glyphs — reads cleanly on the pale foil, no outline
 
-    horiz = Image.new("RGBA", (total_w + 4, line_h + 4), (0, 0, 0, 0))
+    # Layout budget after rotation:
+    #   rotated width  == horizontal line height  -> must fit the 100px strip
+    #   rotated height == horizontal text length  -> must clear the bottom starburst
+    pad = 4
+    max_strip_w = SIDEBAR_W - 14          # leave ~7px margin each side
+    vert_top = 40
+    vert_bottom = CANVAS_H - 130          # keep clear of the enlarged starburst
+    max_text_len = vert_bottom - vert_top
+
+    chosen = None
+    for font_size in range(96, 28, -2):
+        font = load_font(font_size, weight="monument-black")
+        asc, desc = font.getmetrics()
+        line_h = asc + desc + 2 * pad     # true font height (no ink clipping) + outline pad
+        glyph_widths = [font.getbbox(ch)[2] - font.getbbox(ch)[0] for ch in text]
+        total_w = sum(glyph_widths) + tracking * (len(text) - 1) + 2 * pad
+        if line_h <= max_strip_w and total_w <= max_text_len:
+            chosen = (font, glyph_widths, total_w, line_h)
+            break
+    if chosen is None:  # fallback to smallest size attempted
+        font = load_font(30, weight="monument-black")
+        asc, desc = font.getmetrics()
+        line_h = asc + desc + 2 * pad
+        glyph_widths = [font.getbbox(ch)[2] - font.getbbox(ch)[0] for ch in text]
+        total_w = sum(glyph_widths) + tracking * (len(text) - 1) + 2 * pad
+        chosen = (font, glyph_widths, total_w, line_h)
+
+    font, glyph_widths, total_w, line_h = chosen
+
+    horiz = Image.new("RGBA", (total_w, line_h), (0, 0, 0, 0))
     hd = ImageDraw.Draw(horiz)
-    cx = 2
-    # Dark ink for legibility on the pastel metallic foil
-    ink = (24, 22, 36, 255)
+    cx = pad
     for i, ch in enumerate(text):
-        hd.text((cx, 2), ch, font=font, fill=ink)
+        hd.text((cx, pad), ch, font=font, fill=fill)
         cx += glyph_widths[i] + tracking
 
     # Rotate 90 deg counter-clockwise so text reads upward
     rotated = horiz.rotate(90, expand=True, resample=Image.BICUBIC)
 
-    # Position centered vertically on the sidebar
+    # Horizontally center in the strip; vertically center in the available band
     sx = (SIDEBAR_W - rotated.width) // 2
-    sy = (CANVAS_H - rotated.height) // 2
+    sy = vert_top + ((vert_bottom - vert_top) - rotated.height) // 2
     canvas.alpha_composite(rotated, (sx, sy))
 
 
@@ -561,13 +728,14 @@ def render_card(photo_path: Path, name: str, out_path: Path) -> None:
     # Bottom bar with name + logo (drawn before the starburst so the burst stays on top of the sidebar)
     draw_bottom_bar(canvas, name)
 
-    # Starburst inside the sidebar, near the bottom
+    # Starburst inside the sidebar, near the bottom — enlarged, black to match the text
     draw_starburst(
         canvas,
-        center=(SIDEBAR_W // 2, CANVAS_H - 50),
-        outer_r=22,
-        inner_r=10,
+        center=(SIDEBAR_W // 2, CANVAS_H - 62),
+        outer_r=40,
+        inner_r=17,
         points=12,
+        color=(0, 0, 0, 255),
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -575,10 +743,11 @@ def render_card(photo_path: Path, name: str, out_path: Path) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Render NFT.NYC 2026 proof-of-submission cards.")
+    ap = argparse.ArgumentParser(description="Render NFT.NYC 2026 selected-speaker cards.")
     ap.add_argument("csv", help="CSV file with speaker rows")
     ap.add_argument("--out", help="Override output directory")
     ap.add_argument("--cache", help="Override photo cache directory")
+    ap.add_argument("--originals", help="Override high-res originals directory")
     ap.add_argument("--limit", type=int, help="Process only the first N unique speakers")
     args = ap.parse_args()
 
@@ -587,14 +756,16 @@ def main():
         print(f"CSV not found: {csv_path}", file=sys.stderr)
         sys.exit(1)
     csv_dir = csv_path.parent
-    default_out = Path(args.out).resolve() if args.out else (csv_dir / "rendered-pos-cards")
+    default_out = Path(args.out).resolve() if args.out else (csv_dir / "rendered-speaker-cards")
     cache_dir = Path(args.cache).resolve() if args.cache else (csv_dir / "photo-cache")
+    originals_dir = Path(args.originals).resolve() if args.originals else ORIGINALS_DIR
 
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
 
     seen_keys = set()
-    successes, failures, skipped_dup, skipped_excluded = 0, 0, 0, 0
+    successes, failures, skipped_dup, skipped_excluded, hi_res_used = 0, 0, 0, 0, 0
+    qa_warnings: list[str] = []
     for i, row in enumerate(rows, 1):
         image = pick_column(
             row, "Profile Picture", "image_path", "image", "photo", "file", "filename", "url"
@@ -615,8 +786,12 @@ def main():
 
         try:
             override = lookup_photo_override(speaker_key)
+            local_original = lookup_local_original(row, originals_dir)
             if override:
                 photo_path = override
+            elif local_original:
+                photo_path = local_original
+                hi_res_used += 1
             elif is_url(image):
                 photo_path = fetch_to_cache(image, cache_dir)
             else:
@@ -645,11 +820,20 @@ def main():
             render_card(photo_path, name, out_path)
             print(f"[{i}] {name or '(no name)'} -> {out_path}")
             successes += 1
+            warns = qa_face_in_rendered_card(out_path, (PHOTO_X, PHOTO_Y, PHOTO_W, PHOTO_H), name or speaker_key)
+            qa_warnings.extend(warns)
         except Exception as e:
             print(f"[{i}] FAIL render {name or speaker_key}: {e}", file=sys.stderr)
             failures += 1
 
     print(f"Done. {successes} rendered, {failures} failed, {skipped_dup} duplicate rows skipped, {skipped_excluded} excluded.")
+    print(f"      {hi_res_used} used hi-res originals; {successes - hi_res_used} fell back to the 400px CSV thumbnail.")
+    if qa_warnings:
+        print(f"\nFace-detection QA flagged {len(qa_warnings)} card(s):")
+        for w in qa_warnings:
+            print(w)
+    else:
+        print("\nFace-detection QA: all rendered cards pass.")
     sys.exit(0 if failures == 0 else 2)
 
 
